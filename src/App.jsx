@@ -4,7 +4,9 @@ import { collection, doc, setDoc, onSnapshot, query, orderBy } from "firebase/fi
 import WordCloud from "react-d3-cloud";
 import { HiCheckCircle } from "react-icons/hi";
 import { BiSend } from "react-icons/bi";
-import { MdDarkMode, MdLightMode } from "react-icons/md";
+import { MdDarkMode, MdLightMode, MdAdminPanelSettings } from "react-icons/md";
+import Admin from "./Admin";
+import { validateVoteName, RateLimiter, RATE_LIMITS } from "./security";
 
 export default function App() {
   const [voteName, setVoteName] = useState("");
@@ -12,6 +14,13 @@ export default function App() {
   const [hasVoted, setHasVoted] = useState(false);
   const [userVote, setUserVote] = useState("");
   const [darkMode, setDarkMode] = useState(false);
+  const [showAdmin, setShowAdmin] = useState(false);
+  
+  // Rate limiter para votos
+  const voteRateLimiter = new RateLimiter(
+    RATE_LIMITS.VOTE.MAX_ATTEMPTS,
+    RATE_LIMITS.VOTE.TIME_WINDOW
+  );
 
   // Verifica se o usuário já votou
   useEffect(() => {
@@ -57,27 +66,47 @@ export default function App() {
   }, []);
 
   const handleVote = async () => {
-    if (!voteName.trim()) return;
+    if (!voteName.trim()) {
+      alert("Por favor, digite um nome.");
+      return;
+    }
+    
     if (hasVoted) {
       alert("Você já votou! Apenas um voto por pessoa.");
       return;
     }
 
+    // Valida e sanitiza o nome
+    const validation = validateVoteName(voteName);
+    if (!validation.valid) {
+      alert(validation.error);
+      return;
+    }
+
+    // Verifica rate limit
+    const rateLimitCheck = voteRateLimiter.attempt('vote');
+    if (!rateLimitCheck.allowed) {
+      alert(rateLimitCheck.error);
+      return;
+    }
+
+    const cleanName = validation.sanitized;
+    
     // Sanitiza o nome para usar como ID do documento
-    const sanitizedId = voteName.trim().replace(/\s+/g, "_").toLowerCase();
+    const sanitizedId = cleanName.replace(/\s+/g, "_").toLowerCase();
     const docRef = doc(db, "votes", sanitizedId);
 
     // Procura voto existente
-    const existing = words.find((w) => w.text.toLowerCase() === voteName.trim().toLowerCase());
+    const existing = words.find((w) => w.text.toLowerCase() === cleanName.toLowerCase());
     const newValue = (existing?.value || 0) + 1;
 
-    console.log("Votando em:", voteName, "| Novo valor:", newValue);
+    console.log("Votando em:", cleanName, "| Novo valor:", newValue);
 
     try {
       await setDoc(
         docRef,
         {
-          name: voteName.trim(), // nome legível
+          name: cleanName, // nome legível e sanitizado
           value: newValue,
         },
         { merge: true } // cria ou atualiza
@@ -86,10 +115,13 @@ export default function App() {
       
       // Marca como votado no localStorage
       localStorage.setItem("hasVoted", "true");
-      localStorage.setItem("userVote", voteName.trim());
+      localStorage.setItem("userVote", cleanName);
       setHasVoted(true);
-      setUserVote(voteName.trim());
+      setUserVote(cleanName);
       setVoteName("");
+      
+      // Reseta o rate limiter após voto bem-sucedido
+      voteRateLimiter.reset('vote');
     } catch (err) {
       console.error("Erro ao votar:", err);
       alert("Erro ao votar: " + err.message);
@@ -108,6 +140,10 @@ export default function App() {
     localStorage.setItem("darkMode", newMode.toString());
   };
 
+  if (showAdmin) {
+    return <Admin onBack={() => setShowAdmin(false)} />;
+  }
+
   return (
     <div className={`w-screen h-screen flex flex-col items-center justify-between p-6 transition-colors duration-300 ${
       darkMode ? 'bg-neutral-900 text-white' : 'bg-neutral-50 text-neutral-900'
@@ -116,11 +152,22 @@ export default function App() {
       {/* Botão dark mode */}
       <button
         onClick={toggleDarkMode}
-        className={`absolute top-4 right-4 p-2.5 rounded-full transition-all hover:scale-110 ${
+        className={`absolute top-4 right-16 p-2.5 rounded-full transition-all hover:scale-110 ${
           darkMode ? 'bg-neutral-800 text-yellow-400' : 'bg-white text-neutral-900 shadow-md'
         }`}
       >
         {darkMode ? <MdLightMode className="text-xl" /> : <MdDarkMode className="text-xl" />}
+      </button>
+
+      {/* Botão Admin */}
+      <button
+        onClick={() => setShowAdmin(true)}
+        className={`absolute top-4 right-4 p-2.5 rounded-full transition-all hover:scale-110 ${
+          darkMode ? 'bg-neutral-800 text-blue-400' : 'bg-white text-neutral-900 shadow-md'
+        }`}
+        title="Admin Dashboard"
+      >
+        <MdAdminPanelSettings className="text-xl" />
       </button>
       
       {/* Título minimalista */}
@@ -140,19 +187,19 @@ export default function App() {
                 '#FF85A2', '#95E1D3'
               ];
               
-              // Calcula tamanho baseado nos votos
-              const fontSize = Math.log2(word.value + 2) * 25;
+              // Calcula tamanho baseado nos votos (reduzido)
+              const fontSize = Math.log2(word.value + 2) * 15; // reduzido de 25 para 15
               
-              // Distribui palavras em círculo/espiral
+              // Distribui palavras em espiral com espaçamento adequado
               const angle = (i * 137.5 * Math.PI) / 180; // golden angle
-              const radius = Math.sqrt(i + 1) * 60;
+              const radius = Math.sqrt(i + 1) * 50; // reduzido de 80 para 50
               const x = Math.cos(angle) * radius;
               const y = Math.sin(angle) * radius;
               
               return (
                 <div
                   key={word.text}
-                  className="absolute font-semibold transition-all duration-300 hover:scale-110 cursor-default animate-fadeIn"
+                  className="absolute font-semibold transition-all duration-300 hover:scale-110 cursor-default animate-fadeIn whitespace-nowrap"
                   style={{
                     fontSize: `${fontSize}px`,
                     color: colors[i % colors.length],
@@ -160,6 +207,7 @@ export default function App() {
                     top: '50%',
                     transform: `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`,
                     animationDelay: `${i * 0.1}s`,
+                    padding: '4px 8px',
                   }}
                 >
                   {word.text}

@@ -1,10 +1,30 @@
 <!doctype html>
-<html lang="en">
+<html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Sistema de votação</title>
+    
+    <!-- Content Security Policy para proteção contra XSS e injeção de código -->
+    <meta http-equiv="Content-Security-Policy" content="
+      default-src 'self';
+      script-src 'self' 'unsafe-inline' 'unsafe-eval';
+      style-src 'self' 'unsafe-inline';
+      img-src 'self' data: https:;
+      font-src 'self' data:;
+      connect-src 'self' https://*.firebaseio.com https://*.googleapis.com https://openrouter.ai wss://*.firebaseio.com;
+      frame-ancestors 'none';
+      base-uri 'self';
+      form-action 'self';
+    ">
+    
+    <!-- Proteções adicionais de segurança -->
+    <meta http-equiv="X-Content-Type-Options" content="nosniff" />
+    <meta http-equiv="X-Frame-Options" content="DENY" />
+    <meta http-equiv="X-XSS-Protection" content="1; mode=block" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    
+    <title>Sistema de Votação</title>
   </head>
   <body>
     <div id="root"></div>
